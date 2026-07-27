@@ -13,7 +13,7 @@ export async function sendTelegramMessage(
       chat_id: chatId,
       text: message,
       parse_mode: "Markdown",
-      disable_web_page_preview: false,
+      disable_web_page_preview: true,
     });
 
     logger.info("✅ Đã gửi tin nhắn Telegram thành công");
@@ -50,8 +50,6 @@ export function formatNewsMessage(
   const lines = newsItems.map((item, index) => {
     const timeStr = item.published_at
       ? new Date(item.published_at).toLocaleTimeString("vi-VN", {
-          // StockBiz publishes pubDate in GMT. Keep the source's hh:mm instead
-          // of converting it to Vietnam time before displaying it.
           timeZone: "UTC",
           hour: "2-digit",
           minute: "2-digit",
