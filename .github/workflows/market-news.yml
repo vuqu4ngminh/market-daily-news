@@ -1,4 +1,4 @@
-name: Run Market Daily News every 2 hours
+name: Run Market Daily News
 
 on:
   schedule:
@@ -21,11 +21,11 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: |
+        run:
           npm ci
 
       - name: Build TypeScript
-        run: |
+        run:
           npm run build
 
       - name: Run script
@@ -40,9 +40,9 @@ jobs:
           # Set the RUN_MODE repository secret to TEST or LIVE.
           RUN_MODE: ${{ secrets.RUN_MODE }}
           LOG_LEVEL: info
-        run: |
+        run:
           npm start
-          
+
       - name: Create logs directory
         run: mkdir -p logs
       
