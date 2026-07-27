@@ -32,11 +32,12 @@ export async function sendTelegramMessage(
 export function formatNewsMessage(
   newsItems: Array<{
     title: string;
+    stock_symbol: string;
     source: string;
     url?: string;
     published_at?: string;
   }>
-): string {
+): string[] {
   const now = new Date().toLocaleString("vi-VN", {
     timeZone: "Asia/Ho_Chi_Minh",
     day: "2-digit",
@@ -46,39 +47,52 @@ export function formatNewsMessage(
     minute: "2-digit",
   });
 
-  const itemsToSend = newsItems.slice(0, 20);
-  const lines = itemsToSend.map((item) => {
+  const lines = newsItems.map((item, index) => {
     const timeStr = item.published_at
       ? new Date(item.published_at).toLocaleTimeString("vi-VN", {
-          timeZone: "Asia/Ho_Chi_Minh",
+          // StockBiz publishes pubDate in GMT. Keep the source's hh:mm instead
+          // of converting it to Vietnam time before displaying it.
+          timeZone: "UTC",
           hour: "2-digit",
           minute: "2-digit",
         })
       : "";
 
-    const title = escapeMarkdown(item.title);
+    const symbol = /^[A-Z]{3}$/.test(item.stock_symbol)
+      ? `${item.stock_symbol}: `
+      : "";
+    const title = escapeMarkdown(`${symbol}${item.title}`);
     const link = item.url || "";
     const source = escapeMarkdown(item.source);
 
-    let line = `• ${link ? `[${title}](${link})` : title}`;
+    let line = `${index + 1}. ${title}`;
     if (timeStr) {
-      line += ` _(⏰ ${timeStr})_`;
+      line += ` _(${timeStr})_`;
     }
     if (source) {
-      line += ` _[${source}]_`;
+      line += link ? ` [${source}](${link})` : ` [${source}]`;
     }
 
     return line;
   });
 
-  let message = `📰 *TIN TỨC MỚI - ${now}*\n\n`;
-  message += lines.join("\n");
+  const header = `*TIN TỨC MỚI - ${now}*`;
+  const maxMessageLength = 3800;
+  const messages: string[] = [];
+  let current = `${header}\n\n`;
 
-  if (newsItems.length > itemsToSend.length) {
-    message += `\n\n_... và ${newsItems.length - itemsToSend.length} tin khác_`;
+  for (const line of lines) {
+    const next = current.endsWith("\n\n") ? line : `\n${line}`;
+    if (current.length + next.length > maxMessageLength && current !== `${header}\n\n`) {
+      messages.push(current.trim());
+      current = `${header}\n\n${line}`;
+    } else {
+      current += next;
+    }
   }
 
-  return message.trim();
+  if (current.trim() !== header) messages.push(current.trim());
+  return messages;
 }
 
 /**

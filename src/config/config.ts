@@ -42,7 +42,7 @@ export function getConfig(): Config {
     stockSymbols: symbolsEnv
       ? symbolsEnv.split(",").map((s) => s.trim().toUpperCase())
       : defaultSymbols,
-    newsWindowHours: parseInt(process.env.NEWS_WINDOW_HOURS || "1", 10),
+    newsWindowHours: parseInt(process.env.NEWS_WINDOW_HOURS || "3", 10),
     logLevel: process.env.LOG_LEVEL || "info",
   };
 }

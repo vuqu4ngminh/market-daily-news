@@ -1,4 +1,5 @@
 import axios from "axios";
+import { createHash } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import type { StockNews } from "../types/index.js";
 import { logger } from "../utils/logger.js";
@@ -20,25 +21,9 @@ interface RssFeed {
 
 const RSS_SOURCES = [
   {
-    name: "CafeF - Chứng khoán",
-    url: "https://cafef.vn/thi-truong-chung-khoan.rss",
-  },
-  {
-    name: "CafeF - Tài chính - Ngân hàng",
-    url: "https://cafef.vn/tai-chinh-ngan-hang.rss",
-  },
-  {
-    name: "CafeF - Bất động sản",
-    url: "https://cafef.vn/bat-dong-san.rss",
-  },
-  {
-    name: "CafeF - Doanh nghiệp",
-    url: "https://cafef.vn/doanh-nghiep.rss",
-  },
-  {
-    name: "VnExpress - Kinh doanh",
-    url: "https://vnexpress.net/rss/kinh-doanh.rss",
-  },
+    name: "StockBiz",
+    url: "https://web.stockbiz.vn/RSS/News/All.ashx",
+  }
 ];
 
 /**
@@ -62,8 +47,37 @@ function cleanHtml(html: string): string {
     .substring(0, 500);
 }
 
+function normalizeUrl(value?: string): string | undefined {
+  if (!value) return undefined;
+
+  try {
+    const url = new URL(value.trim());
+    ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"].forEach(
+      (name) => url.searchParams.delete(name)
+    );
+    url.hash = "";
+    url.pathname = url.pathname.replace(/\/$/, "");
+    return url.toString();
+  } catch {
+    return value.trim();
+  }
+}
+
+function normalizeTitle(title: string): string {
+  return title
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function createDedupeKey(title: string): string {
+  return createHash("sha256").update(normalizeTitle(title)).digest("hex");
+}
+
 export async function scrapeNews(
-  windowHours = 1
+  windowHours = 5
 ): Promise<StockNews[]> {
   const allNews: StockNews[] = [];
   const parser = new XMLParser({
@@ -105,11 +119,24 @@ export async function scrapeNews(
           (Date.now() - new Date(pubDate).getTime()) / (1000 * 60 * 60);
         if (hoursAgo > windowHours) continue;
 
+        const url = normalizeUrl(item.link);
+
+        // Nếu title có dạng "XXX: rest of title" thì lấy 3 chữ cái trước dấu ':' làm symbol
+        // Nếu không khớp, để là GENERAL
+        let symbol = "GENERAL";
+        let parsedTitle = title;
+        const m = title.match(/^([A-Za-z]{3})\s*[:\-]\s*(.+)$/);
+        if (m) {
+          symbol = m[1].toUpperCase();
+          parsedTitle = m[2].trim();
+        }
+
         allNews.push({
-          stock_symbol: "GENERAL",
-          title,
+          stock_symbol: symbol,
+          title: parsedTitle,
+          dedupe_key: createDedupeKey(parsedTitle),
           source: source.name,
-          url: item.link,
+          url,
           summary: description,
           published_at: pubDate,
           is_sent: false,
@@ -129,7 +156,7 @@ export async function scrapeNews(
 
   const seen = new Set<string>();
   const uniqueNews = allNews.filter((n) => {
-    const key = `${n.title}|${n.stock_symbol}`;
+    const key = createDedupeKey(n.title);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

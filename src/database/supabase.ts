@@ -20,29 +20,55 @@ export class StockNewsRepository {
   }> {
     if (newsItems.length === 0) return { inserted: 0, duplicates: 0 };
 
-    const { data, error } = await this.client
-      .from("stock_news")
-      .upsert(newsItems, {
-        onConflict: "title,stock_symbol",
-        ignoreDuplicates: true,
-      });
+    // stock_news references tracked_stocks. Create every newly detected ticker
+    // before inserting its news so the foreign-key constraint is satisfied.
+    const symbols = [...new Set(newsItems.map((item) => item.stock_symbol.toUpperCase()))];
+    const { error: stockError } = await this.client.from("tracked_stocks").upsert(
+      symbols.map((symbol) => ({
+        symbol,
+        name: symbol === "GENERAL" ? "Tin tức chung" : symbol,
+        is_active: true,
+      })),
+      { onConflict: "symbol", ignoreDuplicates: true }
+    );
 
-    if (error) {
-      logger.error({ error }, "Lỗi khi lưu tin tức vào Supabase");
-      throw error;
+    if (stockError) {
+      logger.error({ error: stockError, symbols }, "Lỗi khi tạo mã cổ phiếu mới");
+      throw stockError;
     }
 
-    // Đếm số bản ghi thực sự được insert
-    const { count } = await this.client
-      .from("stock_news")
-      .select("*", { count: "exact", head: true })
-      .eq("is_sent", false);
+    let inserted = 0;
+    let duplicates = 0;
 
-    // Tính toán số duplicates dựa trên số lượng trả về
-    // Note: upsert không trả về số lượng chính xác trong Supabase JS v2
-    // Chúng ta sẽ ước tính
-    logger.info(`Đã xử lý ${newsItems.length} tin tức`);
-    return { inserted: newsItems.length, duplicates: 0 };
+    for (const item of newsItems) {
+      try {
+        const { error } = await this.client.from("stock_news").insert(item);
+        if (error) {
+          const msg = String((error as any).message || "").toLowerCase();
+          if ((error as any).code === "23505" || msg.includes("duplicate") || msg.includes("unique")) {
+            duplicates++;
+            logger.debug({ title: item.title, symbol: item.stock_symbol }, "Duplicate, skip");
+            continue;
+          }
+
+          logger.error({ error, item }, "Lỗi khi lưu tin tức vào Supabase");
+          throw error;
+        }
+
+        inserted++;
+      } catch (err) {
+        const msg = String((err as any).message || "").toLowerCase();
+        if ((err as any).code === "23505" || msg.includes("duplicate") || msg.includes("unique")) {
+          duplicates++;
+          continue;
+        }
+        logger.error({ err, item }, "Lỗi không mong muốn khi insert tin");
+        throw err;
+      }
+    }
+
+    logger.info(`Đã xử lý ${newsItems.length} tin tức (inserted=${inserted}, duplicates=${duplicates})`);
+    return { inserted, duplicates };
   }
 
   /**
@@ -67,6 +93,29 @@ export class StockNewsRepository {
 
     return data || [];
   }
+
+  /**
+   * Lấy tất cả tin (kể cả đã gửi), dùng cho test
+   */
+  async getNewsForTesting(windowHours: number): Promise<StockNews[]> {
+    const since = new Date(
+      Date.now() - windowHours * 60 * 60 * 1000
+    ).toISOString();
+
+    const { data, error } = await this.client
+      .from("stock_news")
+      .select("*")
+      .gte("published_at", since)
+      .order("published_at", { ascending: false });
+
+    if (error) {
+      logger.error({ error }, "Lỗi khi lấy tin cho test");
+      throw error;
+    }
+
+    return data || [];
+  }
+
 
   /**
    * Đánh dấu tin đã gửi

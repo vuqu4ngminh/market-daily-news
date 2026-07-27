@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS stock_news (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   stock_symbol text NOT NULL,
   title text NOT NULL,
+  dedupe_key text NOT NULL UNIQUE,
   source text,
   url text,
   summary text,
@@ -27,9 +28,7 @@ CREATE TABLE IF NOT EXISTS stock_news (
     ON DELETE SET NULL
 );
 
--- Indexes and uniqueness to help dedupe and query
-CREATE UNIQUE INDEX IF NOT EXISTS uq_stocknews_title_symbol
-  ON stock_news (lower(title), stock_symbol);
+-- Indexes to help query
 
 CREATE INDEX IF NOT EXISTS idx_stocknews_published_at
   ON stock_news (published_at DESC);

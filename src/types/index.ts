@@ -2,6 +2,7 @@ export interface StockNews {
   id?: string;
   stock_symbol: string;
   title: string;
+  dedupe_key?: string;
   source: string;
   url?: string;
   summary?: string;
