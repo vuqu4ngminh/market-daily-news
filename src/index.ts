@@ -31,13 +31,21 @@ async function main() {
 
     const isTestMode = runMode === "TEST";
 
-    logger.info({
-      mode: runMode,
-      githubEvent: process.env.GITHUB_EVENT_NAME,
-      node: process.version,
-      newsWindowHours: config.newsWindowHours,
-      logLevel: config.logLevel,
-    }, `🟢 Chế độ chạy: ${runMode}`);
+    logger.info(
+      {
+        runMode,
+        githubEvent: process.env.GITHUB_EVENT_NAME,
+        nodeVersion: process.version,
+        windowHours:
+          isTestMode
+            ? 6
+            : Math.max(1, config.newsWindowHours || 3),
+        timezone: "Asia/Ho_Chi_Minh",
+      },
+      runMode === "TEST"
+        ? "🧪 TEST MODE"
+        : "🚀 LIVE MODE"
+    );
 
     // ===========================
     // STEP 2 - Kiểm tra thời gian
@@ -120,15 +128,34 @@ async function main() {
       `Scraper trả về ${scraped.length} tin.`
     );
 
+    let inserted = 0;
+    let duplicates = 0;
+
     if (scraped.length > 0) {
       logger.info("Đang lưu dữ liệu vào Supabase...");
 
       const result = await repo.upsertNews(scraped);
 
+      inserted = result.inserted;
+      duplicates = result.duplicates;
+
       logger.info({
-        inserted: result.inserted,
-        duplicates: result.duplicates,
+        inserted,
+        duplicates,
       });
+
+      // LIVE: không có tin mới thì dừng luôn
+      if (!isTestMode && inserted === 0) {
+        logger.info(
+          "Không phát hiện tin mới trong RSS. Bỏ qua bước lấy dữ liệu và gửi Telegram."
+        );
+
+        logger.info({
+          elapsedMs: Date.now() - startTime,
+        }, "🏁 Job hoàn thành.");
+
+        return;
+      }
     }
 
     // ===========================
@@ -170,9 +197,11 @@ async function main() {
     logger.info("[STEP 8/9] Gửi Telegram...");
 
     for (let i = 0; i < messages.length; i++) {
-      logger.info(
-        `Gửi message ${i + 1}/${messages.length}`
-      );
+      logger.info({
+        current: i + 1,
+        total: messages.length,
+        length: messages[i].length,
+      }, "Đang gửi Telegram");
 
       await sendTelegramMessage(
         config.telegram.token,
@@ -198,18 +227,28 @@ async function main() {
     );
 
     logger.info({
+      mode: runMode,
+      scraped: scraped.length,
+      inserted,
+      duplicates,
+      telegramMessages: messages.length,
+      sentNews: ids.length,
       elapsedMs: Date.now() - startTime,
-    }, "🏁 Job hoàn thành.");
+    }, "🏁 Job hoàn thành");
   } catch (error) {
     logger.error("====================================================");
     logger.error("❌ Gửi tin tức thất bại");
 
     if (error instanceof Error) {
-      logger.error({
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-      });
+      logger.error(
+        {
+          err: error,
+          mode: process.env.RUN_MODE,
+          githubEvent: process.env.GITHUB_EVENT_NAME,
+          elapsedMs: Date.now() - startTime,
+        },
+        "❌ Market Daily News FAILED"
+      );
     } else {
       logger.error({
         error,
