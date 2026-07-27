@@ -8,112 +8,230 @@ import {
 import { logger } from "./utils/logger.js";
 
 async function main() {
+  const startTime = Date.now();
+
   try {
+    logger.info("====================================================");
+    logger.info("🚀 Market Daily News bắt đầu chạy");
+
+    // ===========================
+    // STEP 1 - Đọc config
+    // ===========================
+    logger.info("[STEP 1/9] Đọc cấu hình...");
+
     const config = getConfig();
 
-    // Giờ hiện tại theo timezone VN
-    const now = new Date();
-    const nowVN = new Date(
-      now.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" })
-    );
-    const hourVN = nowVN.getHours();
-    const runMode = String(process.env.RUN_MODE || "LIVE").trim().toUpperCase();
+    const runMode = String(process.env.RUN_MODE || "LIVE")
+      .trim()
+      .toUpperCase();
+
     if (runMode !== "LIVE" && runMode !== "TEST") {
       throw new Error("RUN_MODE chỉ nhận giá trị TEST hoặc LIVE");
     }
+
     const isTestMode = runMode === "TEST";
 
-    // TEST is intentional only for a manually started workflow. Do not resend
-    // old news when GitHub reaches the scheduled trigger while this mode is set.
-    if (isTestMode && process.env.GITHUB_EVENT_NAME === "schedule") {
-      logger.info("[TEST] Bỏ qua lượt chạy theo lịch; hãy dùng Run workflow để kiểm tra.");
+    logger.info({
+      mode: runMode,
+      githubEvent: process.env.GITHUB_EVENT_NAME,
+      node: process.version,
+      newsWindowHours: config.newsWindowHours,
+      logLevel: config.logLevel,
+    }, `🟢 Chế độ chạy: ${runMode}`);
+
+    // ===========================
+    // STEP 2 - Kiểm tra thời gian
+    // ===========================
+    logger.info("[STEP 2/9] Kiểm tra khung giờ chạy...");
+
+    const now = new Date();
+    const nowVN = new Date(
+      now.toLocaleString("en-US", {
+        timeZone: "Asia/Ho_Chi_Minh",
+      })
+    );
+
+    const hourVN = nowVN.getHours();
+
+    logger.info({
+      utcTime: now.toISOString(),
+      vietnamTime: nowVN.toString(),
+      hourVN,
+    });
+
+    if (
+      isTestMode &&
+      process.env.GITHUB_EVENT_NAME === "schedule"
+    ) {
+      logger.info(
+        "[TEST] Workflow được trigger theo schedule -> bỏ qua."
+      );
       return;
     }
 
-    // Chế độ thực tế chỉ hoạt động trong khung giờ Việt Nam đã định.
     if (!isTestMode && (hourVN < 6 || hourVN > 23)) {
       logger.info(
-        `Bên ngoài khung giờ gửi (Asia/Ho_Chi_Minh). Giờ hiện tại: ${hourVN}:00 — dừng.`
+        `Ngoài khung giờ gửi (${hourVN}:00 VN) -> kết thúc.`
       );
       return;
     }
 
     if (isTestMode) {
-      logger.info("[TEST] Gửi lại tin gần đây ngay, kể cả các tin đã gửi.");
+      logger.info(
+        "[TEST] Sẽ gửi lại các tin gần đây kể cả đã gửi."
+      );
     }
+
+    // ===========================
+    // STEP 3 - Kết nối Supabase
+    // ===========================
+    logger.info("[STEP 3/9] Khởi tạo Supabase...");
 
     const repo = new StockNewsRepository(
       config.supabase.url,
       config.supabase.serviceRoleKey
     );
 
-    // Dùng luồng headline-only, không cần theo mã cổ phiếu cụ thể
+    logger.info("✅ Kết nối Supabase thành công.");
+
+    // ===========================
+    // STEP 4 - Chuẩn bị dữ liệu
+    // ===========================
+    logger.info("[STEP 4/9] Kiểm tra mã GENERAL...");
+
     await repo.addTrackedStock("GENERAL", "Tin tức chung");
 
-    const windowHours = isTestMode ? 6 : Math.max(1, config.newsWindowHours || 3);
-    logger.info(`Đang quét tin mới trong vòng ${windowHours} giờ`);
+    logger.info("✅ GENERAL đã sẵn sàng.");
 
-    // Crawl tin
+    // ===========================
+    // STEP 5 - Crawl
+    // ===========================
+    const windowHours = isTestMode
+      ? 6
+      : Math.max(1, config.newsWindowHours || 3);
+
+    logger.info(
+      `[STEP 5/9] Crawl RSS (${windowHours} giờ)...`
+    );
+
     const scraped = await scrapeNews(windowHours);
 
-    if (scraped.length === 0) {
-      logger.info("Không tìm thấy tin mới từ các nguồn RSS.");
-    } else {
-      logger.info(`Tìm thấy ${scraped.length} tin liên quan. Lưu vào DB...`);
+    logger.info(
+      `Scraper trả về ${scraped.length} tin.`
+    );
 
-      await repo.upsertNews(scraped);
+    if (scraped.length > 0) {
+      logger.info("Đang lưu dữ liệu vào Supabase...");
+
+      const result = await repo.upsertNews(scraped);
+
+      logger.info({
+        inserted: result.inserted,
+        duplicates: result.duplicates,
+      });
     }
 
-    // Lấy các tin chưa gửi trong khoảng window
+    // ===========================
+    // STEP 6 - Lấy tin
+    // ===========================
+    logger.info("[STEP 6/9] Lấy danh sách tin sẽ gửi...");
+
     const unsent = isTestMode
       ? await repo.getNewsForTesting(windowHours)
-      : await repo.getUnsentNews(config.newsWindowHours);
+      : await repo.getUnsentNews(windowHours);
 
-    if (!unsent || unsent.length === 0) {
-      logger.info(isTestMode ? "Không có tin nào để kiểm tra." : "Không có tin nào mới để gửi.");
+    logger.info(
+      `Lấy được ${unsent.length} tin.`
+    );
+
+    if (unsent.length === 0) {
+      logger.info(
+        isTestMode
+          ? "[TEST] Không có tin để test."
+          : "Không có tin mới để gửi."
+      );
       return;
     }
 
-    if (isTestMode) {
-      logger.info(`[TEST] Lấy ${unsent.length} tin (bao gồm cả đã gửi) để test gửi lại.`);
-    }
+    // ===========================
+    // STEP 7 - Format
+    // ===========================
+    logger.info("[STEP 7/9] Format Telegram...");
 
-    // Gửi toàn bộ danh sách. Khi quá giới hạn Telegram, tin được chia thành nhiều phần.
     const messages = formatNewsMessage(unsent);
-    for (const message of messages) {
+
+    logger.info(
+      `Tin được chia thành ${messages.length} message Telegram.`
+    );
+
+    // ===========================
+    // STEP 8 - Gửi Telegram
+    // ===========================
+    logger.info("[STEP 8/9] Gửi Telegram...");
+
+    for (let i = 0; i < messages.length; i++) {
+      logger.info(
+        `Gửi message ${i + 1}/${messages.length}`
+      );
+
       await sendTelegramMessage(
         config.telegram.token,
         config.telegram.chatId,
-        message
+        messages[i]
       );
     }
 
-    // Đánh dấu đã gửi
+    // ===========================
+    // STEP 9 - Mark Sent
+    // ===========================
+    logger.info("[STEP 9/9] Đánh dấu đã gửi...");
+
     const ids = unsent
       .filter((n) => !n.is_sent)
       .map((n) => n.id!)
       .filter(Boolean) as string[];
+
     await repo.markAsSent(ids);
 
-    logger.info(`Đã gửi và đánh dấu ${ids.length} tin.`);
+    logger.info(
+      `✅ Hoàn tất. Đánh dấu ${ids.length} tin đã gửi.`
+    );
+
+    logger.info({
+      elapsedMs: Date.now() - startTime,
+    }, "🏁 Job hoàn thành.");
   } catch (error) {
+    logger.error("====================================================");
+    logger.error("❌ Gửi tin tức thất bại");
+
     if (error instanceof Error) {
       logger.error({
+        name: error.name,
         message: error.message,
         stack: error.stack,
       });
     } else {
-      logger.error({ error });
+      logger.error({
+        error,
+      });
     }
+
+    logger.error({
+      elapsedMs: Date.now() - startTime,
+      mode: process.env.RUN_MODE,
+      githubEvent: process.env.GITHUB_EVENT_NAME,
+    });
 
     process.exit(1);
   }
 }
 
-// Nếu chạy trực tiếp
 if (process.env.NODE_ENV !== "test") {
-  main().catch((e) => {
-    logger.error({ e }, "Unhandled error");
+  main().catch((error) => {
+    logger.fatal({
+      error,
+    }, "Unhandled Promise Rejection");
+
     process.exit(1);
   });
 }
