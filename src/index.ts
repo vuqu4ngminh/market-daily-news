@@ -97,8 +97,16 @@ async function main() {
 
     logger.info(`Đã gửi và đánh dấu ${ids.length} tin.`);
   } catch (error) {
-    logger.error({ error }, "Lỗi không mong muốn trong tiến trình chính");
-    process.exitCode = 1;
+    if (error instanceof Error) {
+      logger.error({
+        message: error.message,
+        stack: error.stack,
+      });
+    } else {
+      logger.error({ error });
+    }
+
+    process.exit(1);
   }
 }
 
