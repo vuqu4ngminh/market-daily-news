@@ -2,6 +2,7 @@ import axios from "axios";
 import { createHash } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import type { StockNews } from "../types/index.js";
+import { writeInternationalNewsLog } from "../utils/internationalNewsLog.js";
 import { logger } from "../utils/logger.js";
 
 interface RssItem {
@@ -19,11 +20,26 @@ interface RssFeed {
   };
 }
 
-const RSS_SOURCES = [
+interface RssSource {
+  name: string;
+  url: string;
+  language: "vi" | "en";
+  detectTickerPrefix: boolean;
+}
+
+const RSS_SOURCES: RssSource[] = [
   {
     name: "StockBiz",
     url: "https://web.stockbiz.vn/RSS/News/All.ashx",
-  }
+    language: "vi",
+    detectTickerPrefix: true,
+  },
+  {
+    name: "Yahoo Finance",
+    url: "https://finance.yahoo.com/news/rss",
+    language: "en",
+    detectTickerPrefix: false,
+  },
 ];
 
 /**
@@ -86,38 +102,97 @@ export async function scrapeNews(
   });
 
   for (const source of RSS_SOURCES) {
+    const isInternational = source.language !== "vi";
+    const sourceStats = {
+      totalItems: 0,
+      acceptedItems: 0,
+      outsideWindowItems: 0,
+      missingTitleItems: 0,
+      invalidDateItems: 0,
+    };
+    const outsideWindowSamples: Array<{
+      title?: string;
+      pubDate?: string;
+      hoursAgo?: number;
+    }> = [];
+
     try {
       logger.info(`Đang crawl: ${source.name}`);
+
+      if (isInternational) {
+        writeInternationalNewsLog("FETCH_STARTED", {
+          source: source.name,
+          url: source.url,
+          windowHours,
+        });
+      }
 
       const response = await axios.get(source.url, {
         timeout: 15000,
         headers: {
           "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0",
+            "Mozilla/5.0 (compatible; MarketDailyNews/2.0; +https://github.com/vuqu4ngminh/market-daily-news)",
+          Accept:
+            "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
         },
         responseType: "text",
       });
 
+      if (isInternational) {
+        writeInternationalNewsLog("HTTP_SUCCESS", {
+          source: source.name,
+          status: response.status,
+          contentType: response.headers["content-type"],
+          responseBytes:
+            typeof response.data === "string" ? response.data.length : undefined,
+        });
+      }
+
       const parsed: RssFeed = parser.parse(response.data);
       const items = parsed.rss?.channel?.item;
-      if (!items) continue;
+      if (!items) {
+        if (isInternational) {
+          writeInternationalNewsLog("RSS_ITEMS_MISSING", {
+            source: source.name,
+            message: "Không tìm thấy rss.channel.item trong phản hồi.",
+          });
+        }
+        continue;
+      }
 
       const itemArray = Array.isArray(items) ? items : [items];
+      sourceStats.totalItems = itemArray.length;
 
       for (const item of itemArray) {
         const title = item.title?.trim();
-        if (!title) continue;
+        if (!title) {
+          sourceStats.missingTitleItems++;
+          continue;
+        }
 
         const description = item.description
           ? cleanHtml(item.description)
           : undefined;
 
         const pubDate = parseDate(item.pubDate);
-        if (!pubDate) continue;
+        if (!pubDate) {
+          sourceStats.invalidDateItems++;
+          continue;
+        }
 
         const hoursAgo =
           (Date.now() - new Date(pubDate).getTime()) / (1000 * 60 * 60);
-        if (hoursAgo > windowHours) continue;
+        if (hoursAgo > windowHours) {
+          sourceStats.outsideWindowItems++;
+          if (outsideWindowSamples.length < 5) {
+            outsideWindowSamples.push({
+              title,
+              pubDate,
+              hoursAgo: Number(hoursAgo.toFixed(2)),
+            });
+          }
+          continue;
+        }
 
         const url = normalizeUrl(item.link);
 
@@ -125,7 +200,9 @@ export async function scrapeNews(
         // Nếu không khớp, để là GENERAL
         let symbol = "GENERAL";
         let parsedTitle = title;
-        const m = title.match(/^([A-Za-z]{3})\s*[:\-]\s*(.+)$/);
+        const m = source.detectTickerPrefix
+          ? title.match(/^([A-Za-z]{3})\s*[:\-]\s*(.+)$/)
+          : null;
         if (m) {
           symbol = m[1].toUpperCase();
           parsedTitle = m[2].trim();
@@ -141,12 +218,45 @@ export async function scrapeNews(
           published_at: pubDate,
           is_sent: false,
         });
+        sourceStats.acceptedItems++;
+      }
+
+      if (isInternational) {
+        writeInternationalNewsLog("RSS_PROCESSED", {
+          source: source.name,
+          windowHours,
+          ...sourceStats,
+          outsideWindowSamples,
+          message:
+            sourceStats.acceptedItems === 0
+              ? "Nguồn phản hồi thành công nhưng không có tin nằm trong cửa sổ thời gian."
+              : "Đã đọc được tin quốc tế hợp lệ.",
+        });
       }
 
       logger.info(
         `${source.name}: tìm thấy ${itemArray.length} tin, lọc được tin mới trong ${windowHours} giờ`
       );
     } catch (error) {
+      if (isInternational) {
+        const axiosError = axios.isAxiosError(error) ? error : undefined;
+        const responseBody = axiosError?.response?.data;
+
+        writeInternationalNewsLog("FETCH_FAILED", {
+          source: source.name,
+          url: source.url,
+          message: error instanceof Error ? error.message : String(error),
+          code: axiosError?.code,
+          status: axiosError?.response?.status,
+          statusText: axiosError?.response?.statusText,
+          responseBody:
+            typeof responseBody === "string"
+              ? responseBody.substring(0, 1000)
+              : responseBody,
+          stats: sourceStats,
+        });
+      }
+
       logger.warn(
         { error: (error as Error).message },
         `Không thể crawl ${source.name}`

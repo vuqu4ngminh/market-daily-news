@@ -1,4 +1,5 @@
 import axios from "axios";
+import { writeInternationalNewsLog } from "../utils/internationalNewsLog.js";
 import { logger } from "../utils/logger.js";
 
 export async function sendTelegramMessage(
@@ -6,18 +7,46 @@ export async function sendTelegramMessage(
   chatId: string,
   message: string
 ): Promise<void> {
+  const containsInternationalNews = message.includes("[Yahoo Finance]");
+
   try {
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
 
-    await axios.post(url, {
+    if (containsInternationalNews) {
+      writeInternationalNewsLog("TELEGRAM_SEND_STARTED", {
+        messageLength: message.length,
+        messagePreview: message.substring(0, 500),
+      });
+    }
+
+    const response = await axios.post(url, {
       chat_id: chatId,
       text: message,
       parse_mode: "Markdown",
       disable_web_page_preview: true,
     });
 
+    if (containsInternationalNews) {
+      writeInternationalNewsLog("TELEGRAM_SEND_SUCCESS", {
+        status: response.status,
+        messageLength: message.length,
+      });
+    }
+
     logger.info("✅ Đã gửi tin nhắn Telegram thành công");
   } catch (error) {
+    if (containsInternationalNews) {
+      const axiosError = axios.isAxiosError(error) ? error : undefined;
+      writeInternationalNewsLog("TELEGRAM_SEND_FAILED", {
+        message: error instanceof Error ? error.message : String(error),
+        code: axiosError?.code,
+        status: axiosError?.response?.status,
+        responseBody: axiosError?.response?.data,
+        messageLength: message.length,
+        messagePreview: message.substring(0, 1000),
+      });
+    }
+
     logger.error(
       { error: (error as Error).message },
       "❌ Gửi Telegram thất bại"

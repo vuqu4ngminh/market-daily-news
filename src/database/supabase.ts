@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { StockNews, TrackedStock } from "../types/index.js";
+import { writeInternationalNewsLog } from "../utils/internationalNewsLog.js";
 import { logger } from "../utils/logger.js";
 
 export class StockNewsRepository {
@@ -52,6 +53,17 @@ export class StockNewsRepository {
           }
 
           logger.error({ error, item }, "Lỗi khi lưu tin tức vào Supabase");
+          if (item.source === "Yahoo Finance") {
+            writeInternationalNewsLog("DATABASE_INSERT_FAILED", {
+              source: item.source,
+              title: item.title,
+              publishedAt: item.published_at,
+              code: (error as any).code,
+              message: (error as any).message,
+              details: (error as any).details,
+              hint: (error as any).hint,
+            });
+          }
           throw error;
         }
 
@@ -63,6 +75,14 @@ export class StockNewsRepository {
           continue;
         }
         logger.error({ err, item }, "Lỗi không mong muốn khi insert tin");
+        if (item.source === "Yahoo Finance") {
+          writeInternationalNewsLog("DATABASE_INSERT_FAILED", {
+            source: item.source,
+            title: item.title,
+            publishedAt: item.published_at,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
         throw err;
       }
     }

@@ -48,9 +48,9 @@ async function main() {
     );
 
     // ===========================
-    // STEP 2 - Kiểm tra thời gian
+    // STEP 2 - Ghi nhận thời gian chạy
     // ===========================
-    logger.info("[STEP 2/9] Kiểm tra khung giờ chạy...");
+    logger.info("[STEP 2/9] Ghi nhận thời gian chạy 24/7...");
 
     const now = new Date();
     const nowVN = new Date(
@@ -73,13 +73,6 @@ async function main() {
     ) {
       logger.info(
         "[TEST] Workflow được trigger theo schedule -> bỏ qua."
-      );
-      return;
-    }
-
-    if (!isTestMode && (hourVN < 6 || hourVN > 23)) {
-      logger.info(
-        `Ngoài khung giờ gửi (${hourVN}:00 VN) -> kết thúc.`
       );
       return;
     }
