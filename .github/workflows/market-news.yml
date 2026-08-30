@@ -53,7 +53,7 @@ jobs:
 
       - name: Upload international news logs
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: international-news-logs
           path: logs/international-news.log
