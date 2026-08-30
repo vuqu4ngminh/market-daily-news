@@ -5,16 +5,7 @@ on:
     # UTC 01:00, 03:00, ..., 23:00 = Vietnam 08:00, 10:00, ..., 06:00.
     # This covers the full day at a steady two-hour interval.
     - cron: '0 1,3,5,7,9,11,13,15,17,19,21,23 * * *'
-  workflow_dispatch:
-    inputs:
-      run_mode:
-        description: "Run Mode"
-        required: true
-        default: "TEST"
-        type: choice
-        options:
-          - TEST
-          - LIVE
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -52,8 +43,10 @@ jobs:
           STOCK_SYMBOLS: ${{ vars.STOCK_SYMBOLS }}
           # Three-hour overlap prevents missed news if a scheduled run starts late.
           NEWS_WINDOW_HOURS: ${{ vars.NEWS_WINDOW_HOURS }}
-          # Set the RUN_MODE repository secret to TEST or LIVE.
-          RUN_MODE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_mode || 'LIVE' }}
+          # Yahoo may publish less frequently on weekends; dedupe prevents resending.
+          INTERNATIONAL_NEWS_WINDOW_HOURS: ${{ vars.INTERNATIONAL_NEWS_WINDOW_HOURS || '72' }}
+          # Manual Run workflow is always TEST; scheduled runs are always LIVE.
+          RUN_MODE: ${{ github.event_name == 'workflow_dispatch' && 'TEST' || 'LIVE' }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
         run:
           npm start

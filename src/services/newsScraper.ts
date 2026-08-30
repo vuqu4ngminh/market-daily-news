@@ -95,6 +95,13 @@ function createDedupeKey(title: string): string {
 export async function scrapeNews(
   windowHours = 5
 ): Promise<StockNews[]> {
+  const configuredInternationalWindow = Number.parseInt(
+    process.env.INTERNATIONAL_NEWS_WINDOW_HOURS || "72",
+    10
+  );
+  const internationalWindowHours = Number.isFinite(configuredInternationalWindow)
+    ? Math.max(windowHours, configuredInternationalWindow)
+    : Math.max(windowHours, 72);
   const allNews: StockNews[] = [];
   const parser = new XMLParser({
     ignoreAttributes: false,
@@ -103,6 +110,9 @@ export async function scrapeNews(
 
   for (const source of RSS_SOURCES) {
     const isInternational = source.language !== "vi";
+    const sourceWindowHours = isInternational
+      ? internationalWindowHours
+      : windowHours;
     const sourceStats = {
       totalItems: 0,
       acceptedItems: 0,
@@ -123,7 +133,7 @@ export async function scrapeNews(
         writeInternationalNewsLog("FETCH_STARTED", {
           source: source.name,
           url: source.url,
-          windowHours,
+          windowHours: sourceWindowHours,
         });
       }
 
@@ -182,7 +192,7 @@ export async function scrapeNews(
 
         const hoursAgo =
           (Date.now() - new Date(pubDate).getTime()) / (1000 * 60 * 60);
-        if (hoursAgo > windowHours) {
+        if (hoursAgo > sourceWindowHours) {
           sourceStats.outsideWindowItems++;
           if (outsideWindowSamples.length < 5) {
             outsideWindowSamples.push({
@@ -212,6 +222,8 @@ export async function scrapeNews(
           stock_symbol: symbol,
           title: parsedTitle,
           dedupe_key: createDedupeKey(parsedTitle),
+          is_international: isInternational,
+          original_language: source.language,
           source: source.name,
           url,
           summary: description,
@@ -224,7 +236,7 @@ export async function scrapeNews(
       if (isInternational) {
         writeInternationalNewsLog("RSS_PROCESSED", {
           source: source.name,
-          windowHours,
+          windowHours: sourceWindowHours,
           ...sourceStats,
           outsideWindowSamples,
           message:
@@ -235,7 +247,7 @@ export async function scrapeNews(
       }
 
       logger.info(
-        `${source.name}: tìm thấy ${itemArray.length} tin, lọc được tin mới trong ${windowHours} giờ`
+        `${source.name}: tìm thấy ${itemArray.length} tin, lọc trong ${sourceWindowHours} giờ`
       );
     } catch (error) {
       if (isInternational) {

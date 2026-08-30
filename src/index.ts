@@ -137,18 +137,6 @@ async function main() {
         duplicates,
       });
 
-      // LIVE: không có tin mới thì dừng luôn
-      if (!isTestMode && inserted === 0) {
-        logger.info(
-          "Không phát hiện tin mới trong RSS. Bỏ qua bước lấy dữ liệu và gửi Telegram."
-        );
-
-        logger.info({
-          elapsedMs: Date.now() - startTime,
-        }, "🏁 Job hoàn thành.");
-
-        return;
-      }
     }
 
     // ===========================
@@ -156,15 +144,19 @@ async function main() {
     // ===========================
     logger.info("[STEP 6/9] Lấy danh sách tin sẽ gửi...");
 
-    const unsent = isTestMode
-      ? await repo.getNewsForTesting(windowHours)
+    // TEST sends the freshly scraped list directly, even when every item was
+    // already present in Supabase. Fall back to recent DB rows if RSS is empty.
+    const newsToSend = isTestMode
+      ? scraped.length > 0
+        ? scraped
+        : await repo.getNewsForTesting(windowHours)
       : await repo.getUnsentNews(windowHours);
 
     logger.info(
-      `Lấy được ${unsent.length} tin.`
+      `Lấy được ${newsToSend.length} tin.`
     );
 
-    if (unsent.length === 0) {
+    if (newsToSend.length === 0) {
       logger.info(
         isTestMode
           ? "[TEST] Không có tin để test."
@@ -178,7 +170,7 @@ async function main() {
     // ===========================
     logger.info("[STEP 7/9] Format Telegram...");
 
-    const messages = formatNewsMessage(unsent);
+    const messages = formatNewsMessage(newsToSend);
 
     logger.info(
       `Tin được chia thành ${messages.length} message Telegram.`
@@ -208,16 +200,25 @@ async function main() {
     // ===========================
     logger.info("[STEP 9/9] Đánh dấu đã gửi...");
 
-    const ids = unsent
-      .filter((n) => !n.is_sent)
-      .map((n) => n.id!)
-      .filter(Boolean) as string[];
+    let markedSentCount = 0;
 
-    await repo.markAsSent(ids);
+    if (isTestMode) {
+      logger.info(
+        "[TEST] Không cập nhật is_sent; các tin vẫn có thể được gửi trong LIVE."
+      );
+    } else {
+      const ids = newsToSend
+        .filter((n) => !n.is_sent)
+        .map((n) => n.id!)
+        .filter(Boolean) as string[];
 
-    logger.info(
-      `✅ Hoàn tất. Đánh dấu ${ids.length} tin đã gửi.`
-    );
+      await repo.markAsSent(ids);
+      markedSentCount = ids.length;
+
+      logger.info(
+        `✅ Hoàn tất. Đánh dấu ${markedSentCount} tin đã gửi.`
+      );
+    }
 
     logger.info({
       mode: runMode,
@@ -225,7 +226,8 @@ async function main() {
       inserted,
       duplicates,
       telegramMessages: messages.length,
-      sentNews: ids.length,
+      sentNews: newsToSend.length,
+      markedSent: markedSentCount,
       elapsedMs: Date.now() - startTime,
     }, "🏁 Job hoàn thành");
   } catch (error) {

@@ -33,5 +33,34 @@ CREATE TABLE IF NOT EXISTS stock_news (
 CREATE INDEX IF NOT EXISTS idx_stocknews_published_at
   ON stock_news (published_at DESC);
 
+-- International articles are stored separately because they do not use the
+-- Vietnamese tracked_stocks foreign key and will later be enriched by Gemini.
+CREATE TABLE IF NOT EXISTS international_news (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title text NOT NULL,
+  translated_title text,
+  dedupe_key text NOT NULL UNIQUE,
+  source text NOT NULL,
+  url text,
+  summary text,
+  original_language text NOT NULL DEFAULT 'en',
+  is_economic boolean,
+  ai_processed boolean NOT NULL DEFAULT false,
+  ai_model text,
+  ai_confidence numeric(4,3)
+    CHECK (ai_confidence IS NULL OR (ai_confidence >= 0 AND ai_confidence <= 1)),
+  ai_error text,
+  published_at timestamptz,
+  is_sent boolean NOT NULL DEFAULT false,
+  sent_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_international_news_published_at
+  ON international_news (published_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_international_news_unsent
+  ON international_news (is_sent, published_at DESC);
+
 -- Note: gen_random_uuid() requires the pgcrypto extension; enable it if missing
 -- CREATE EXTENSION IF NOT EXISTS pgcrypto;

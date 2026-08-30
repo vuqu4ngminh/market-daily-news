@@ -3,6 +3,8 @@ export interface StockNews {
   stock_symbol: string;
   title: string;
   dedupe_key?: string;
+  is_international?: boolean;
+  original_language?: string;
   source: string;
   url?: string;
   summary?: string;
