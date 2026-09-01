@@ -7,7 +7,7 @@ export async function sendTelegramMessage(
   chatId: string,
   message: string
 ): Promise<void> {
-  const containsInternationalNews = message.includes("[Yahoo Finance]");
+  const containsInternationalNews = message.includes("Yahoo Finance");
 
   try {
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -22,7 +22,7 @@ export async function sendTelegramMessage(
     const response = await axios.post(url, {
       chat_id: chatId,
       text: message,
-      parse_mode: "Markdown",
+      parse_mode: "HTML",
       disable_web_page_preview: true,
     });
 
@@ -56,7 +56,9 @@ export async function sendTelegramMessage(
 }
 
 /**
- * Định dạng tin tức thành tin nhắn Markdown cho Telegram
+ * Định dạng tin tức thành HTML an toàn cho Telegram.
+ * HTML chỉ cần escape các ký tự cấu trúc nên không làm xuất hiện dấu "\\"
+ * trước ngoặc tròn hoặc các dấu câu thường gặp trong tiêu đề Việt/Anh.
  */
 export function formatNewsMessage(
   newsItems: Array<{
@@ -88,22 +90,24 @@ export function formatNewsMessage(
     const symbol = /^[A-Z]{3}$/.test(item.stock_symbol)
       ? `${item.stock_symbol}: `
       : "";
-    const title = escapeMarkdown(`${symbol}${item.title}`);
+    const title = escapeHtml(`${symbol}${item.title}`);
     const link = item.url || "";
-    const source = escapeMarkdown(item.source);
+    const source = escapeHtml(item.source);
 
     let line = `${index + 1}. ${title}`;
     if (timeStr) {
-      line += ` _(${timeStr})_`;
+      line += ` <i>(${timeStr})</i>`;
     }
     if (source) {
-      line += link ? ` [${source}](${link})` : ` [${source}]`;
+      line += link
+        ? ` <a href="${escapeHtml(link)}">[${source}]</a>`
+        : ` [${source}]`;
     }
 
     return line;
   });
 
-  const header = `*TIN TỨC MỚI - ${now}*`;
+  const header = `<b>TIN TỨC MỚI - ${escapeHtml(now)}</b>`;
   const maxMessageLength = 3800;
   const messages: string[] = [];
   let current = `${header}\n\n`;
@@ -123,23 +127,17 @@ export function formatNewsMessage(
 }
 
 /**
-* Escape ký tự đặc biệt trong Markdown v1 của Telegram
+ * Escape nội dung động trước khi chèn vào Telegram HTML.
+ * Regex hoạt động trên ký tự cấu trúc HTML và không phụ thuộc ngôn ngữ.
 */
-function escapeMarkdown(text: string): string {
-  return text
-    .replace(/\\/g, "\\\\")
-    .replace(/\[/g, "\\[")
-    .replace(/\]/g, "\\]")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)")
-    .replace(/~/g, "\\~")
-    .replace(/`/g, "\\`")
-    .replace(/>/g, "\\>")
-    .replace(/#/g, "\\#")
-    .replace(/\+/g, "\\+")
-    .replace(/-/g, "\\-")
-    .replace(/=/g, "\\=")
-    .replace(/\|/g, "\\|")
-    .replace(/\{/g, "\\{")
-    .replace(/\}/g, "\\}");
+function escapeHtml(text: string): string {
+  const entities: Record<string, string> = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  };
+
+  return text.replace(/[&<>"']/g, (character) => entities[character]);
 }
