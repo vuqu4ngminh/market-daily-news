@@ -183,64 +183,8 @@ CREATE INDEX IF NOT EXISTS idx_article_deliveries_pending
 CREATE INDEX IF NOT EXISTS idx_crawl_runs_started_at
   ON public.crawl_runs (started_at DESC);
 
-INSERT INTO public.news_sources (
-  code, name, source_type, feed_url, website_url, country_code,
-  language_code, is_international, display_order, telegram_group,
-  parser_config
-)
-VALUES
-  (
-    'stockbiz', 'StockBiz', 'rss',
-    'https://web.stockbiz.vn/RSS/News/All.ashx',
-    'https://stockbiz.vn', 'VN', 'vi', false, 10, 'StockBiz',
-    '{"detectTickerPrefix": true}'::jsonb
-  ),
-  (
-    'vneconomy_finance', 'VnEconomy - Tài chính', 'rss',
-    'https://vneconomy.vn/tai-chinh.rss',
-    'https://vneconomy.vn', 'VN', 'vi', false, 20, 'VnEconomy',
-    '{"detectTickerPrefix": false}'::jsonb
-  ),
-  (
-    'vneconomy_securities', 'VnEconomy - Chứng khoán', 'rss',
-    'https://vneconomy.vn/chung-khoan.rss',
-    'https://vneconomy.vn', 'VN', 'vi', false, 20, 'VnEconomy',
-    '{"detectTickerPrefix": false}'::jsonb
-  ),
-  (
-    'yahoo_finance', 'Yahoo Finance', 'rss',
-    'https://finance.yahoo.com/news/rss',
-    'https://finance.yahoo.com', 'US', 'en', true, 30, 'Yahoo',
-    '{"detectTickerPrefix": false}'::jsonb
-  )
-ON CONFLICT (code) DO NOTHING;
-
--- Fill grouping metadata only for rows that still have the old defaults.
-UPDATE public.news_sources
-SET
-  display_order = CASE code
-    WHEN 'stockbiz' THEN 10
-    WHEN 'vneconomy_finance' THEN 20
-    WHEN 'vneconomy_securities' THEN 20
-    WHEN 'yahoo_finance' THEN 30
-    ELSE display_order
-  END,
-  telegram_group = COALESCE(
-    telegram_group,
-    CASE code
-      WHEN 'stockbiz' THEN 'StockBiz'
-      WHEN 'vneconomy_finance' THEN 'VnEconomy'
-      WHEN 'vneconomy_securities' THEN 'VnEconomy'
-      WHEN 'yahoo_finance' THEN 'Yahoo'
-    END
-  )
-WHERE code IN (
-  'stockbiz',
-  'vneconomy_finance',
-  'vneconomy_securities',
-  'yahoo_finance'
-)
-AND (display_order = 100 OR telegram_group IS NULL);
+-- Nguồn RSS được quản lý riêng trong seed_news_sources.sql để có thể thêm,
+-- sửa và chạy lại danh sách nguồn mà không phải chạy lại toàn bộ schema.
 
 INSERT INTO public.delivery_channels (code, name, channel_type)
 VALUES ('telegram_default', 'Telegram mặc định', 'telegram')
