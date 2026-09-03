@@ -45,8 +45,6 @@ jobs:
           NEWS_WINDOW_HOURS: ${{ vars.NEWS_WINDOW_HOURS }}
           # Yahoo may publish less frequently on weekends; dedupe prevents resending.
           INTERNATIONAL_NEWS_WINDOW_HOURS: ${{ vars.INTERNATIONAL_NEWS_WINDOW_HOURS || '72' }}
-          # Manual Run workflow is always TEST; scheduled runs are always LIVE.
-          RUN_MODE: ${{ github.event_name == 'workflow_dispatch' && 'TEST' || 'LIVE' }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
         run:
           npm start

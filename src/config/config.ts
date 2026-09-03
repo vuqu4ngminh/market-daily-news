@@ -3,6 +3,29 @@ import type { Config } from "../types/index.js";
 
 dotenv.config();
 
+export type RunMode = "LIVE" | "TEST";
+
+/**
+ * GitHub determines the mode without requiring an extra Secret or Variable:
+ * schedule -> LIVE, workflow_dispatch -> TEST. RUN_MODE is only a local fallback.
+ */
+export function resolveRunMode(
+  environment: NodeJS.ProcessEnv = process.env
+): RunMode {
+  if (environment.GITHUB_EVENT_NAME === "schedule") return "LIVE";
+  if (environment.GITHUB_EVENT_NAME === "workflow_dispatch") return "TEST";
+
+  const configuredMode = String(environment.RUN_MODE || "LIVE")
+    .trim()
+    .toUpperCase();
+
+  if (configuredMode !== "LIVE" && configuredMode !== "TEST") {
+    throw new Error("RUN_MODE chỉ nhận giá trị TEST hoặc LIVE");
+  }
+
+  return configuredMode;
+}
+
 function validateEnv(): void {
   const requiredVars = [
     "SUPABASE_URL",

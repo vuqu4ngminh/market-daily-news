@@ -1,4 +1,4 @@
-import getConfig from "./config/config.js";
+import getConfig, { resolveRunMode } from "./config/config.js";
 import { StockNewsRepository } from "./database/supabase.js";
 import { scrapeNews } from "./services/newsScraper.js";
 import {
@@ -11,6 +11,7 @@ async function main() {
   const startTime = Date.now();
   let repo: StockNewsRepository | undefined;
   let crawlRunId: string | undefined;
+  let activeRunMode: "LIVE" | "TEST" | undefined;
 
   try {
     logger.info("====================================================");
@@ -23,14 +24,8 @@ async function main() {
 
     const config = getConfig();
 
-    const runMode = String(process.env.RUN_MODE || "LIVE")
-      .trim()
-      .toUpperCase();
-
-    if (runMode !== "LIVE" && runMode !== "TEST") {
-      throw new Error("RUN_MODE chỉ nhận giá trị TEST hoặc LIVE");
-    }
-
+    const runMode = resolveRunMode();
+    activeRunMode = runMode;
     const isTestMode = runMode === "TEST";
 
     logger.info(
@@ -68,16 +63,6 @@ async function main() {
       vietnamTime: nowVN.toString(),
       hourVN,
     });
-
-    if (
-      isTestMode &&
-      process.env.GITHUB_EVENT_NAME === "schedule"
-    ) {
-      logger.info(
-        "[TEST] Workflow được trigger theo schedule -> bỏ qua."
-      );
-      return;
-    }
 
     if (isTestMode) {
       logger.info(
@@ -271,7 +256,7 @@ async function main() {
       logger.error(
         {
           err: error,
-          mode: process.env.RUN_MODE,
+          mode: activeRunMode,
           githubEvent: process.env.GITHUB_EVENT_NAME,
           elapsedMs: Date.now() - startTime,
         },
@@ -285,7 +270,7 @@ async function main() {
 
     logger.error({
       elapsedMs: Date.now() - startTime,
-      mode: process.env.RUN_MODE,
+      mode: activeRunMode,
       githubEvent: process.env.GITHUB_EVENT_NAME,
     });
 
