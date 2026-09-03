@@ -205,7 +205,7 @@ export class StockNewsRepository {
           published_at,
           created_at,
           status,
-          source:news_sources!inner(id,name),
+          source:news_sources!inner(id,name,display_order,telegram_group),
           stocks:article_stocks(stock_symbol)
         )
       `)
@@ -245,7 +245,7 @@ export class StockNewsRepository {
         published_at,
         created_at,
         status,
-        source:news_sources!inner(id,name),
+        source:news_sources!inner(id,name,display_order,telegram_group),
         stocks:article_stocks(stock_symbol)
       `)
       .eq("status", "published")
@@ -447,6 +447,8 @@ export class StockNewsRepository {
       is_international: article.region === "international",
       original_language: article.original_language,
       source: source?.name || "Unknown",
+      source_group: source?.telegram_group || source?.name || "Khác",
+      source_order: source?.display_order ?? 100,
       url: article.canonical_url || undefined,
       summary: article.summary || undefined,
       published_at: article.published_at || undefined,

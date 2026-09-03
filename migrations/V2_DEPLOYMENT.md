@@ -8,7 +8,8 @@ rollback database.
 
 1. Mở Supabase Dashboard > SQL Editor.
 2. Chạy toàn bộ file `create_v2_schema.sql` và kiểm tra kết quả thành công.
-3. Kiểm tra hai nguồn `stockbiz`, `yahoo_finance` trong `news_sources` và kênh
+3. Kiểm tra các nguồn `stockbiz`, `vneconomy_finance`,
+   `vneconomy_securities`, `yahoo_finance` trong `news_sources` và kênh
    `telegram_default` trong `delivery_channels`.
 4. Commit và push code mới lên GitHub.
 5. Chạy workflow thủ công một lần. Workflow thủ công là TEST mode nên có thể
@@ -38,6 +39,12 @@ dùng `stock_news` và `international_news`. Không cần xóa bảng v2; để 
 giúp giữ dữ liệu đã thu thập trong thời gian thử nghiệm.
 
 Không chạy `DROP TABLE` trong quá trình rollback.
+
+## Bổ sung VnEconomy và thứ tự Telegram
+
+Với database v2 đã tồn tại, chạy file `add_vneconomy_sources.sql`. File này
+thêm hai RSS VnEconomy và các cột `display_order`, `telegram_group` dùng để hiển
+thị theo nhóm `StockBiz -> VnEconomy -> Yahoo`.
 
 ## Lỗi `crawl_runs.source_id violates not-null constraint`
 

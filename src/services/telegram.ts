@@ -65,6 +65,8 @@ export function formatNewsMessage(
     title: string;
     stock_symbol: string;
     source: string;
+    source_group?: string;
+    source_order?: number;
     url?: string;
     published_at?: string;
   }>
@@ -78,7 +80,28 @@ export function formatNewsMessage(
     minute: "2-digit",
   });
 
-  const lines = newsItems.map((item, index) => {
+  const sortedItems = newsItems
+    .map((item, originalIndex) => ({ item, originalIndex }))
+    .sort((a, b) => {
+      const orderDifference =
+        (a.item.source_order ?? 100) - (b.item.source_order ?? 100);
+      if (orderDifference !== 0) return orderDifference;
+
+      const aGroup = a.item.source_group || a.item.source;
+      const bGroup = b.item.source_group || b.item.source;
+      const groupDifference = aGroup.localeCompare(bGroup, "vi");
+      if (groupDifference !== 0) return groupDifference;
+
+      const aTime = a.item.published_at
+        ? new Date(a.item.published_at).getTime()
+        : 0;
+      const bTime = b.item.published_at
+        ? new Date(b.item.published_at).getTime()
+        : 0;
+      return bTime - aTime || a.originalIndex - b.originalIndex;
+    });
+
+  const entries = sortedItems.map(({ item }, index) => {
     const timeStr = item.published_at
       ? new Date(item.published_at).toLocaleTimeString("vi-VN", {
           timeZone: "UTC",
@@ -104,25 +127,39 @@ export function formatNewsMessage(
         : ` [${source}]`;
     }
 
-    return line;
+    return {
+      group: item.source_group || item.source || "Khác",
+      line,
+    };
   });
 
   const header = `<b>TIN TỨC MỚI - ${escapeHtml(now)}</b>`;
   const maxMessageLength = 3800;
   const messages: string[] = [];
   let current = `${header}\n\n`;
+  let currentGroup = "";
+  let hasEntries = false;
 
-  for (const line of lines) {
-    const next = current.endsWith("\n\n") ? line : `\n${line}`;
-    if (current.length + next.length > maxMessageLength && current !== `${header}\n\n`) {
+  for (const entry of entries) {
+    const escapedGroup = escapeHtml(entry.group);
+    const groupChanged = currentGroup !== entry.group;
+    const next = groupChanged
+      ? `${hasEntries ? "\n\n" : ""}<b>${escapedGroup}</b>\n${entry.line}`
+      : `\n${entry.line}`;
+
+    if (current.length + next.length > maxMessageLength && hasEntries) {
       messages.push(current.trim());
-      current = `${header}\n\n${line}`;
+      current = `${header}\n\n<b>${escapedGroup}</b>\n${entry.line}`;
+      currentGroup = entry.group;
+      hasEntries = true;
     } else {
       current += next;
+      currentGroup = entry.group;
+      hasEntries = true;
     }
   }
 
-  if (current.trim() !== header) messages.push(current.trim());
+  if (hasEntries) messages.push(current.trim());
   return messages;
 }
 

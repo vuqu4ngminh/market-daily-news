@@ -7,6 +7,8 @@ export interface StockNews {
   is_international?: boolean;
   original_language?: string;
   source: string;
+  source_group?: string;
+  source_order?: number;
   url?: string;
   summary?: string;
   published_at?: string;
@@ -26,6 +28,8 @@ export interface NewsSource {
   language_code: string;
   is_international: boolean;
   is_active: boolean;
+  display_order: number;
+  telegram_group?: string;
   fetch_interval_minutes: number;
   parser_config?: {
     detectTickerPrefix?: boolean;

@@ -213,6 +213,8 @@ export async function scrapeNews(
           is_international: isInternational,
           original_language: source.language_code,
           source: source.name,
+          source_group: source.telegram_group || source.name,
+          source_order: source.display_order,
           url,
           summary: description,
           published_at: pubDate,
