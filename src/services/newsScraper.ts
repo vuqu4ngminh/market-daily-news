@@ -1,7 +1,7 @@
 import axios from "axios";
 import { createHash } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
-import type { StockNews } from "../types/index.js";
+import type { NewsSource, StockNews } from "../types/index.js";
 import { writeInternationalNewsLog } from "../utils/internationalNewsLog.js";
 import { logger } from "../utils/logger.js";
 
@@ -19,28 +19,6 @@ interface RssFeed {
     };
   };
 }
-
-interface RssSource {
-  name: string;
-  url: string;
-  language: "vi" | "en";
-  detectTickerPrefix: boolean;
-}
-
-const RSS_SOURCES: RssSource[] = [
-  {
-    name: "StockBiz",
-    url: "https://web.stockbiz.vn/RSS/News/All.ashx",
-    language: "vi",
-    detectTickerPrefix: true,
-  },
-  {
-    name: "Yahoo Finance",
-    url: "https://finance.yahoo.com/news/rss",
-    language: "en",
-    detectTickerPrefix: false,
-  },
-];
 
 /**
  * Parse pubDate về ISO string
@@ -93,7 +71,8 @@ function createDedupeKey(title: string): string {
 }
 
 export async function scrapeNews(
-  windowHours = 5
+  windowHours = 5,
+  sources: NewsSource[] = []
 ): Promise<StockNews[]> {
   const configuredInternationalWindow = Number.parseInt(
     process.env.INTERNATIONAL_NEWS_WINDOW_HOURS || "72",
@@ -108,8 +87,16 @@ export async function scrapeNews(
     parseTagValue: false,
   });
 
-  for (const source of RSS_SOURCES) {
-    const isInternational = source.language !== "vi";
+  for (const source of sources) {
+    if (source.source_type !== "rss") {
+      logger.warn(
+        { source: source.name, sourceType: source.source_type },
+        "Bỏ qua nguồn chưa có adapter"
+      );
+      continue;
+    }
+
+    const isInternational = source.is_international;
     const sourceWindowHours = isInternational
       ? internationalWindowHours
       : windowHours;
@@ -132,12 +119,12 @@ export async function scrapeNews(
       if (isInternational) {
         writeInternationalNewsLog("FETCH_STARTED", {
           source: source.name,
-          url: source.url,
+          url: source.feed_url,
           windowHours: sourceWindowHours,
         });
       }
 
-      const response = await axios.get(source.url, {
+      const response = await axios.get(source.feed_url, {
         timeout: 15000,
         headers: {
           "User-Agent":
@@ -210,7 +197,7 @@ export async function scrapeNews(
         // Nếu không khớp, để là GENERAL
         let symbol = "GENERAL";
         let parsedTitle = title;
-        const m = source.detectTickerPrefix
+        const m = source.parser_config?.detectTickerPrefix
           ? title.match(/^([A-Za-z]{3})\s*[:\-]\s*(.+)$/)
           : null;
         if (m) {
@@ -219,11 +206,12 @@ export async function scrapeNews(
         }
 
         allNews.push({
+          source_id: source.id,
           stock_symbol: symbol,
           title: parsedTitle,
           dedupe_key: createDedupeKey(parsedTitle),
           is_international: isInternational,
-          original_language: source.language,
+          original_language: source.language_code,
           source: source.name,
           url,
           summary: description,
@@ -256,7 +244,7 @@ export async function scrapeNews(
 
         writeInternationalNewsLog("FETCH_FAILED", {
           source: source.name,
-          url: source.url,
+          url: source.feed_url,
           message: error instanceof Error ? error.message : String(error),
           code: axiosError?.code,
           status: axiosError?.response?.status,

@@ -87,7 +87,7 @@ export function formatNewsMessage(
         })
       : "";
 
-    const symbol = /^[A-Z]{3}$/.test(item.stock_symbol)
+    const symbol = /^[A-Z]{3}(?:\/[A-Z]{3})*$/.test(item.stock_symbol)
       ? `${item.stock_symbol}: `
       : "";
     const title = escapeHtml(`${symbol}${item.title}`);

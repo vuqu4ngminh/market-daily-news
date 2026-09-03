@@ -9,6 +9,8 @@ import { logger } from "./utils/logger.js";
 
 async function main() {
   const startTime = Date.now();
+  let repo: StockNewsRepository | undefined;
+  let crawlRunId: string | undefined;
 
   try {
     logger.info("====================================================");
@@ -88,7 +90,7 @@ async function main() {
     // ===========================
     logger.info("[STEP 3/9] Khởi tạo Supabase...");
 
-    const repo = new StockNewsRepository(
+    repo = new StockNewsRepository(
       config.supabase.url,
       config.supabase.serviceRoleKey
     );
@@ -96,13 +98,21 @@ async function main() {
     logger.info("✅ Kết nối Supabase thành công.");
 
     // ===========================
-    // STEP 4 - Chuẩn bị dữ liệu
+    // STEP 4 - Đọc nguồn tin từ schema v2
     // ===========================
-    logger.info("[STEP 4/9] Kiểm tra mã GENERAL...");
+    logger.info("[STEP 4/9] Đọc nguồn tin đang bật...");
 
-    await repo.addTrackedStock("GENERAL", "Tin tức chung");
+    const newsSources = await repo.getActiveNewsSources();
+    if (newsSources.length === 0) {
+      throw new Error(
+        "Không có nguồn tin đang bật trong bảng news_sources"
+      );
+    }
 
-    logger.info("✅ GENERAL đã sẵn sàng.");
+    logger.info(
+      { sources: newsSources.map((source) => source.code) },
+      `✅ Đã tải ${newsSources.length} nguồn tin.`
+    );
 
     // ===========================
     // STEP 5 - Crawl
@@ -115,7 +125,19 @@ async function main() {
       `[STEP 5/9] Crawl RSS (${windowHours} giờ)...`
     );
 
-    const scraped = await scrapeNews(windowHours);
+    crawlRunId = await repo.startCrawlRun(
+      isTestMode
+        ? "test"
+        : process.env.GITHUB_EVENT_NAME === "schedule"
+          ? "schedule"
+          : "manual"
+    );
+
+    const scraped = await scrapeNews(windowHours, newsSources);
+
+    await repo.markSourcesFetched(
+      newsSources.map((source) => source.id)
+    );
 
     logger.info(
       `Scraper trả về ${scraped.length} tin.`
@@ -138,6 +160,13 @@ async function main() {
       });
 
     }
+
+    await repo.completeCrawlRun(crawlRunId, {
+      found: scraped.length,
+      inserted,
+      duplicates,
+    });
+    crawlRunId = undefined;
 
     // ===========================
     // STEP 6 - Lấy tin
@@ -231,6 +260,10 @@ async function main() {
       elapsedMs: Date.now() - startTime,
     }, "🏁 Job hoàn thành");
   } catch (error) {
+    if (repo && crawlRunId) {
+      await repo.failCrawlRun(crawlRunId, error);
+    }
+
     logger.error("====================================================");
     logger.error("❌ Gửi tin tức thất bại");
 
